@@ -1,13 +1,31 @@
-.PHONY: default
+# تحديد الصورة الأساسية (على سبيل المثال، PHP مع دعم MySQL)
+FROM php:8.1-cli
 
-default: build
+# تثبيت الأدوات والاعتماديات اللازمة
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    default-mysql-client \
+    && docker-php-ext-install pdo_mysql
 
-build:
-    @ls src/deploy/composer.json || echo "composer.json not found!"
-    @docker-compose build
+# إعداد مجلد العمل داخل الحاوية
+WORKDIR /app
 
-start: build
-    @docker-compose up -d
+# نسخ الملفات اللازمة إلى الحاوية
+COPY src/deploy/composer.json /app/composer.json
 
-deploy: start
-    @docker exec -it ministra_db /bin/bash -c "ls /var/lib/mysql/stalker_db/administrators.frm || cd /tmp/mysql/delta/ && ls -1v *.sql | xargs sed -n '/--/,/@UNDO/p' > /tmp/mysql/stalker_db.sql && mysql stalker_db < /tmp/mysql/stalker_db.sql"
+# تشغيل Composer لتثبيت الاعتماديات
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer && \
+    composer install
+
+# نسخ باقي ملفات المشروع إلى الحاوية
+COPY . /app
+
+# تهيئة قاعدة البيانات
+CMD ["sh", "-c", "\
+    if [ ! -f /var/lib/mysql/stalker_db/administrators.frm ]; then \
+        cd /tmp/mysql/delta/ && \
+        ls -1v *.sql | xargs sed -n '/--/,/@UNDO/p' > /tmp/mysql/stalker_db.sql && \
+        mysql -u root -proot_password stalker_db < /tmp/mysql/stalker_db.sql; \
+    fi && \
+    docker-compose up -d"]
